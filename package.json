@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "serve": "node server.js",
+    "serve": "node server.js"
   },
   "dependencies": {
     "express": "4.17.1",
