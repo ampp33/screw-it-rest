@@ -67,9 +67,9 @@ VALUES
 ((SELECT categoryid FROM switch.category WHERE name='Media'), (SELECT fieldid FROM switch.field WHERE name='Videos'), 2);
 
 SELECT c.categoryid, c.name AS "category_name", f.fieldid, f.name as "field_name", f.type, f.json
-FROM switch.category c
-JOIN switch.field_category fc ON fc.categoryid = c.categoryid
-JOIN switch.field f on f.fieldid = fc.fieldid
+FROM switch_old.category c
+JOIN switch_old.field_category fc ON fc.categoryid = c.categoryid
+JOIN switch_old.field f on f.fieldid = fc.fieldid
 ORDER BY c.category_order, fc.field_order;
 
 

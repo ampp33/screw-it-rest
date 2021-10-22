@@ -23,211 +23,176 @@ var con = mysql.createConnection({
 });
 con.connect();
 
-getSwitchFields = function(callback) {
-	const SQL = 'SELECT c.categoryid, c.name AS "category_name", f.fieldid,'
-								+ ' f.name as "field_name", f.type, f.json'
-								+ ' FROM switch.category c'
-								+ ' JOIN switch.field_category fc ON fc.categoryid = c.categoryid'
-								+ ' JOIN switch.field f on f.fieldid = fc.fieldid'
-								+ ' ORDER BY c.category_order, fc.field_order';
+app.post('/api/switch', jsonParser, function(req, res) {
+	const switchData = JSON.parse(req.body.switch);
+	var switchId = switchData.switch_id;
 
-	con.query(SQL, function(error, results, fields) {
-		var json = [];
-		var currentCategoryObj;
-		for(var i = 0; i < results.length; i++) {
-			var result = results[i];
-			if(!currentCategoryObj || result.category_name != currentCategoryObj.name) {
-				currentCategoryObj = {
-						id: result.categoryid,
-						name: result.category_name,
-						fields: []
-				};
-				json.push(currentCategoryObj);
-			}
-
-			var field = {
-				id: result.fieldid,
-				name: result.field_name,
-				type: result.type,
-			};
-
-			if(result.json) {
-				var additionalFields = JSON.parse(result.json);
-				Object.assign(field, additionalFields);
-			}
-			currentCategoryObj.fields.push(field);
-		}
-
-		// return results to REST caller
-		callback(json);
-	});
-}
-
-findSwitchesWithData = function(switchId = null, searchFields = [], callback) {
-	var whereClause = '';
-	var preparedValues = [];
-
-	// compile where clause if search fields are provided
-	if(searchFields && searchFields.length > 0) {
-		var comma = '';
-		const inSet = '(?, ?)';
-		// NOTE: first addition to WHERE statement, so add 'WHERE' no matter what
-		whereClause += ' WHERE s.switch_id IN ('
-		+ ' SELECT switch_id FROM switch.value v2'
-		+ ' JOIN switch.field f2 ON f2.fieldid = v2.field_id'
-		+ ' WHERE (f2.name, v2.value) IN (';
-
-		searchFields.forEach(searchField => {
-			whereClause += comma;
-			whereClause += inSet;
-			comma = ",";
-			preparedValues.push(searchField.name, searchField.value);
-		});
-		whereClause += ") GROUP BY s.switch_id HAVING COUNT(1) = ? )";
-		preparedValues.push(searchFields.length);
-	}
-
-	if(switchId) {
-		if(whereClause.length == 0) {
-			// add 'WHERE' because no where clause has been identified yet
-			whereClause += ' WHERE';
-		} else {
-			// where clause already exists, add a condition to it
-			whereClause += ' AND';
-		}
-		whereClause += ' s.switch_id = ?';
-		preparedValues.push(switchId);
-	}
-
-	const SQL = 'SELECT v.switch_id, v.field_id, v.value'
-							+ ' FROM switch.switch s'
-							+ ' JOIN switch.value v ON v.switch_id = s.switch_id'
-							+ whereClause;
-
-	con.query(SQL, preparedValues, function(error, results, fields) {
-		var switchesWithData = [];
-		var currentSwitch;
-		for(var i = 0; i < results.length; i++) {
-			var result = results[i];
-
-			if(!currentSwitch || result.switch_id != currentSwitch.switch_id) {
-				currentSwitch = {
-					switch_id: result.switch_id,
-					fields: []
-				};
-				switchesWithData.push(currentSwitch);
-			}
-
-			currentSwitch.fields.push({
-				field_id: result.field_id,
-				value: result.value
-			});
-		}
-
-		// return results to REST caller
-		callback(switchesWithData);
-	});
-}
-
-app.get('/api/switch-fields', function (req, res) {
-	getSwitchFields(function(json) {
-		res.send(json);
-	});
-});
-
-app.put('/api/switch', jsonParser, function(req, res) {
-	const switchData = JSON.parse(req.body.switchData);
-	const userId = 999;
+	// TODO determine of user needs to have their stuff reviewed
 
 	// create switch
-	const INSERT_SWITCH_SQL = 'INSERT INTO switch.switch (created_by, created_ts) VALUES (?, NOW())';
-	con.query(INSERT_SWITCH_SQL, [userId], function(err, results) {
+	const INSERT_SWITCH_SQL
+		= 'INSERT INTO switch (switch_id, variant_num, name, series, manufacturer,'
+			+ ' type, mount, top_material, bottom_material, stem_material, top_color,'
+			+ ' bottom_color, stem_color, actuation_weight, bottom_out_weight, pre_travel,'
+			+ ' total_travel, is_silent, updated_by, updated_ts, version, is_pending_review)'
+			+ ' VALUES'
+			+ '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)';
+
+	const switchValues = [
+		switchData.switch_id,
+		switchData.variant_num,
+		switchData.name,
+		switchData.series,
+		switchData.manufacturer,
+		switchData.type,
+		switchData.mount,
+		switchData.top_material,
+		switchData.bottom_material,
+		switchData.stem_material,
+		switchData.top_color,
+		switchData.bottom_color,
+		switchData.stem_color,
+		switchData.actuation_weight,
+		switchData.bottom_out_weight,
+		switchData.pre_travel,
+		switchData.total_travel,
+		switchData.is_silent,
+		switchData.updated_by,
+		switchData.version,
+		'0'
+	];
+
+	con.query(INSERT_SWITCH_SQL, switchValues, function(err, results) {
 		if(err) {
 			console.error(err);
 			res.sendStatus(500);
 			return;
 		} else {
-			const switchId = results.insertId;
+			if(!switchId) {
+				switchId = results.insertId;
+			}
+		}
 
-			// insert switch values
-			const INSERT_SWITCH_DATA_SQL = 'INSERT INTO switch.value (switch_id, field_id, value) VALUES ?';
+		// insert image(s)
+		const INSERT_IMAGE_SQL
+			= 'INSERT INTO switch.image (switch_id,file_name,is_primary,added_by,'
+					+ ' added_ts,is_pending_review)'
+					+ ' VALUES'
+					+ ' (?,?,?,?,NOW(),?)';
 
-			var batchValues = [];
-			switchData.forEach(function(category){
-				category.fields.forEach(function(field) {
-					batchValues.push([
-						switchId,
-						field.id,
-						field.value
-					]);
-				});
-			});
+		const imageValues = [];
+		for(const image of switchData.images) {
+			imageValues.push(
+				switchId,
+				image.file_name,
+				image.is_primary,
+				image.added_by,
+				'0'
+			);
+		}
 
-			con.query(INSERT_SWITCH_DATA_SQL, [batchValues], function(err) {
+		con.query(INSERT_IMAGE_SQL, imageValues, function(err, results) {
+			if(err) {
+				console.error(err);
+				res.sendStatus(500);
+				return;
+			}
+
+			// insert listing(s)
+			const INSERT_LISTING_SQL
+				= 'INSERT INTO switch.listing (url,price,switch_id,added_by,'
+						+ ' added_ts,is_pending_review)'
+						+ ' VALUES'
+						+ ' (?,?,?,?,NOW(),?)';
+
+			const listingValues = [];
+			for(const listing of switchData.listings) {
+				listingValues.push(
+					listing.file_name,
+					listing.price,
+					switchId,
+					image.added_by,
+					'0'
+				);
+			}
+
+			con.query(INSERT_LISTING_SQL, listingValues, function(err, results) {
 				if(err) {
 					console.error(err);
 					res.sendStatus(500);
+					return;
 				} else {
-					res.sendStatus(200);
+
+					// TODO add references
+					// TODO add review entries if necessary
+					// done?
+
 				}
 			});
-		}
+		});
 	});
 });
 
-app.get('/api/switch', jsonParser, function(req, res) {
-	getSwitchFields(function(json) {
-		// have all switch fields, so update their values with the switch's data
+getAllowedSwitchSearchFields = function(callback) {
+	var switchTableFields = [];
+
+	const GET_SWITCH_TABLE_FIELDS
+		= "SELECT column_name FROM information_schema.columns "
+				+ " WHERE table_schema = 'switch' AND table_name = 'switch'";
+
+	con.query(GET_SWITCH_TABLE_FIELDS, function(err, results) {
+		if(err) {
+			console.error(err);
+			res.sendStatus(500);
+			return;
+		} else {
+			for(const result of results) {
+				switchTableFields.push(result.column_name);
+			}
+			callback(switchTableFields);
+		}
 	});
-});
+}
 
 app.get('/api/search', jsonParser, function(req, res) {
-	// grab search fields from request, if present
-	var searchSwitchId = null;
-	const searchFields = [];
 	if(req.query) {
-		if(req.query.switch_id) {
-			searchSwitchId = req.query.switch_id;
-		}
-		if(req.query.search_fields) {
-			searchFields = JSON.parse(req.query.search_fields);
-		}
-	}
-	// retrieve template for switch data (category, field name, type, etc)
-	getSwitchFields(function(switchCategories) {
-		// perform switch search
-		findSwitchesWithData(searchSwitchId, searchFields, function(switchesWithData) {
-			var responseSwitchList = [];
-			// loop through each switch and push its data onto the template,
-			// then push the result object onto the response list
-			for(const switchWithData of switchesWithData) {
-				// make a copy of the switch template
-				var copiedSwitchCategories = JSON.parse(JSON.stringify(switchCategories));
-				// create a new switch object to return in the response
-				var responseSwitch = {
-					switch_id: switchWithData.switch_id,
-					switchCategories: copiedSwitchCategories
-				};
-				responseSwitchList.push(responseSwitch);
+		const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
+			// execute search
+			var searchData = [];
+			var SEARCH_SQL
+				= 'SELECT *'
+						+ ' FROM switch.switch';
 
-				// loop through each field in the switch template and find the matching
-				// field in the switch data, then copy the switch field value into the
-				// template
-				for(const category of copiedSwitchCategories) {
-					for(const field of category.fields) {
-						var fieldWithData = switchWithData.fields.find(switchField => switchField.field_id === field.id);
-						if(fieldWithData) {
-							field.value = fieldWithData.value;
-							continue;
-						}
-					}
+			if(req.query.length > 0) {
+				SEARCH_SQL += ' WHERE';
+			}
+			var AND = '';
+
+			// filter search fields to only include fields present in the database
+			for(const queryField in req.query) {
+				if(allowedSearchFields.includes(queryField)) {
+					SEARCH_SQL += AND + queryField + ' = ?';
+					AND = ' AND ';
+					searchData.push(req.query[queryField]);
 				}
 			}
 
-			// done, return results!
-			res.send(responseSwitchList);
+			con.query(SEARCH_SQL, searchData, function(err, results) {
+				if(err) {
+					console.error(err);
+					res.sendStatus(500);
+					return;
+				} else {
+					var output = [];
+					for(const result of results) {
+						output.push(Object.assign({}, result));
+					}
+					console.log(output);
+					res.send(output);
+				}
+			});
 		});
-	});
+	}
 });
 
 app.listen(port, () => {
