@@ -23,20 +23,50 @@ var con = mysql.createConnection({
 });
 con.connect();
 
+getFileExtension = function(fileName) {
+  var tokens = fileName.split('\.');
+  return tokens[tokens.length - 1];
+}
+
 app.post('/api/switch', jsonParser, function(req, res) {
-	const switchData = JSON.parse(req.body.switch);
+  console.log(req.body);
+	const data = req.body;
+  const switchData = data.switchData;
+  const userId = data.userId;
 	var switchId = switchData.switch_id;
 
 	// TODO determine of user needs to have their stuff reviewed
 
+  // TODO do all this in a transaction
+
+  // pre-insert data cleanup
+  if(switchData.is_silent) {
+    if(switchData.is_silent === true) {
+      switchData.is_silent = '1';
+    } else {
+      switchData.is_silent = '0';
+    }
+  } else {
+    switchData.is_silent = '0';
+  }
+
+  if(!switchData.variant_num) {
+    switchData.variant_num = 1;
+  }
+
+  switchData.version = 1;
+
+  // TODO change to current user ID
+  switchData.updated_by = 999;
+
 	// create switch
 	const INSERT_SWITCH_SQL
-		= 'INSERT INTO switch (switch_id, variant_num, name, series, manufacturer,'
+		= 'INSERT INTO switch.switch (switch_id, variant_num, name, series, manufacturer,'
 			+ ' type, mount, top_material, bottom_material, stem_material, top_color,'
 			+ ' bottom_color, stem_color, actuation_weight, bottom_out_weight, pre_travel,'
 			+ ' total_travel, is_silent, updated_by, updated_ts, version, is_pending_review)'
 			+ ' VALUES'
-			+ '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)';
+			+ '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,?)';
 
 	const switchValues = [
 		switchData.switch_id,
@@ -82,6 +112,13 @@ app.post('/api/switch', jsonParser, function(req, res) {
 
 		const imageValues = [];
 		for(const image of switchData.images) {
+      // generate guid for filename
+      image.file_name = 'asdf' + '.' + getFileExtension(image.file_name);
+      // TODO save file to filesystem!
+
+      // TODO change added_by to have actual userId
+      image.added_by = 999;
+
 			imageValues.push(
 				switchId,
 				image.file_name,
@@ -107,11 +144,14 @@ app.post('/api/switch', jsonParser, function(req, res) {
 
 			const listingValues = [];
 			for(const listing of switchData.listings) {
+        // TODO change added_by to have actual userId
+        listing.added_by = 999;
+
 				listingValues.push(
-					listing.file_name,
+					listing.url,
 					listing.price,
 					switchId,
-					image.added_by,
+					listing.added_by,
 					'0'
 				);
 			}
@@ -155,44 +195,53 @@ getAllowedSwitchSearchFields = function(callback) {
 }
 
 app.get('/api/search', jsonParser, function(req, res) {
-	if(req.query) {
-		const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
-			// execute search
-			var searchData = [];
-			var SEARCH_SQL
-				= 'SELECT *'
-						+ ' FROM switch.switch';
+  const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
+		// execute search
+		var searchData = [];
+		var SEARCH_SQL
+			= 'SELECT *'
+					+ ' FROM switch.switch';
 
-			if(req.query.length > 0) {
-				SEARCH_SQL += ' WHERE';
+    var hasQueryParams = false;
+    if(req.query) {
+      // TODO change to more elegantly check if query params are present
+      for(const queryField in req.query) {
+        hasQueryParams = true;
+        break;
+      }
+		}
+
+		if(hasQueryParams) {
+			SEARCH_SQL += ' WHERE';
+		}
+		var AND = ' ';
+
+		// filter search fields to only include fields present in the database
+		for(const queryField in req.query) {
+			if(allowedSearchFields.includes(queryField)) {
+        // TODO check for less/greater/not indicators - regex?
+        var queryValue = req.query[queryField];
+				SEARCH_SQL += AND + queryField + ' = ?';
+				AND = ' AND ';
+				searchData.push(queryValue);
 			}
-			var AND = '';
+		}
 
-			// filter search fields to only include fields present in the database
-			for(const queryField in req.query) {
-				if(allowedSearchFields.includes(queryField)) {
-					SEARCH_SQL += AND + queryField + ' = ?';
-					AND = ' AND ';
-					searchData.push(req.query[queryField]);
+		con.query(SEARCH_SQL, searchData, function(err, results) {
+			if(err) {
+				console.error(err);
+				res.sendStatus(500);
+				return;
+			} else {
+				var output = [];
+				for(const result of results) {
+					output.push(Object.assign({}, result));
 				}
+
+				res.send(output);
 			}
-
-			con.query(SEARCH_SQL, searchData, function(err, results) {
-				if(err) {
-					console.error(err);
-					res.sendStatus(500);
-					return;
-				} else {
-					var output = [];
-					for(const result of results) {
-						output.push(Object.assign({}, result));
-					}
-					console.log(output);
-					res.send(output);
-				}
-			});
 		});
-	}
+	});
 });
 
 app.listen(port, () => {
