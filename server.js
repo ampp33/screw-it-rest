@@ -28,6 +28,10 @@ getFileExtension = function(fileName) {
   return tokens[tokens.length - 1];
 }
 
+transaction = function() {
+  
+}
+
 app.post('/api/switch', jsonParser, function(req, res) {
   console.log(req.body);
 	const data = req.body;
