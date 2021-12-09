@@ -1,67 +1,138 @@
 var security = require('./security');
 
 var express = require('express');
+var fileUpload = require('express-fileupload');
 var bodyParser = require('body-parser')
 const cors = require('cors');
+
+var uuid = require('uuid');
 
 
 var app = express();
 const port = 8081;
 
+// enable cors
 app.use(cors({
-    origin: '*'
+		origin: '*'
 }));
 
+// enable files upload
+app.use(fileUpload({
+    createParentPath: true
+}));
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({extended: true}));
+
 // create application/json parser
-var jsonParser = bodyParser.json()
+var jsonParser = bodyParser.json();
 
 var mysql = require('mysql');
 var con = mysql.createConnection({
-  host: security.SWITCH_DB_URL,
-  user: security.SWITCH_DB_USER,
-  password: security.SWITCH_DB_PASS
+	host: security.SWITCH_DB_URL,
+	user: security.SWITCH_DB_USER,
+	password: security.SWITCH_DB_PASS
 });
 con.connect();
 
 getFileExtension = function(fileName) {
-  var tokens = fileName.split('\.');
-  return tokens[tokens.length - 1];
+	var tokens = fileName.split('\.');
+	return tokens[tokens.length - 1];
 }
 
-transaction = function() {
-  
+transaction = function(...funcs) {
+	connection.beginTransaction(function(err) {
+		if (err) { throw err; }
+		var out = {};
+		for(const f of funcs) {
+			try {
+				out = f(out);
+			} catch (err) {
+				// error detected, roll back
+				connection.rollback(function() {
+					throw err;
+				});
+			}
+		}
+		// all work successfull, commit txn!
+		connection.commit(function(err) {
+			if (err) {
+				connection.rollback(function() {
+					throw err;
+				});
+			}
+			console.log('success!');
+		});
+	});
 }
+
+app.get('/api/test', jsonParser, function(req, res) {
+	const SQL = 'INSERT INTO switch.derp (value) VALUES (?)';
+	const values = ['a'];
+	con.query(INSERT_SWITCH_SQL, switchValues, function(err, results) {
+		if(err) {
+			throw err;
+		} else {
+			return;
+		}
+	});
+});
+
+app.post('/api/upload', function(req, res) {
+	console.log(req.files);
+  var images = req.files.images;
+  if(images) {
+		console.log('num images: ' + images.length);
+		for(const image of images) {
+			// generate unique guid filename
+			var ext = getFileExtension(image.name);
+			var fileName = uuid.v4(); + '.' + ext;
+			var filePath = 'C:\\pics\\' + fileName;
+
+			// move file to upload directory
+			image.mv(filePath);
+		}
+
+    // return generated filename to caller, indicating a successful upload
+    res.send({
+      file_name: fileName
+    });
+  } else {
+    res.status(500);
+  }
+
+});
 
 app.post('/api/switch', jsonParser, function(req, res) {
-  console.log(req.body);
+	console.log(req.body);
 	const data = req.body;
-  const switchData = data.switchData;
-  const userId = data.userId;
+	const switchData = data.switchData;
+	const userId = data.userId;
 	var switchId = switchData.switch_id;
 
 	// TODO determine of user needs to have their stuff reviewed
 
-  // TODO do all this in a transaction
+	// TODO do all this in a transaction
 
-  // pre-insert data cleanup
-  if(switchData.is_silent) {
-    if(switchData.is_silent === true) {
-      switchData.is_silent = '1';
-    } else {
-      switchData.is_silent = '0';
-    }
-  } else {
-    switchData.is_silent = '0';
-  }
+	// pre-insert data cleanup
+	if(switchData.is_silent) {
+		if(switchData.is_silent === true) {
+			switchData.is_silent = '1';
+		} else {
+			switchData.is_silent = '0';
+		}
+	} else {
+		switchData.is_silent = '0';
+	}
 
-  if(!switchData.variant_num) {
-    switchData.variant_num = 1;
-  }
+	if(!switchData.variant_num) {
+		switchData.variant_num = 1;
+	}
 
-  switchData.version = 1;
+	switchData.version = 1;
 
-  // TODO change to current user ID
-  switchData.updated_by = 999;
+	// TODO change to current user ID
+	switchData.updated_by = 999;
 
 	// create switch
 	const INSERT_SWITCH_SQL
@@ -116,12 +187,12 @@ app.post('/api/switch', jsonParser, function(req, res) {
 
 		const imageValues = [];
 		for(const image of switchData.images) {
-      // generate guid for filename
-      image.file_name = 'asdf' + '.' + getFileExtension(image.file_name);
-      // TODO save file to filesystem!
+			// generate guid for filename
+			image.file_name = 'asdf' + '.' + getFileExtension(image.file_name);
+			// TODO save file to filesystem!
 
-      // TODO change added_by to have actual userId
-      image.added_by = 999;
+			// TODO change added_by to have actual userId
+			image.added_by = 999;
 
 			imageValues.push(
 				switchId,
@@ -148,8 +219,8 @@ app.post('/api/switch', jsonParser, function(req, res) {
 
 			const listingValues = [];
 			for(const listing of switchData.listings) {
-        // TODO change added_by to have actual userId
-        listing.added_by = 999;
+				// TODO change added_by to have actual userId
+				listing.added_by = 999;
 
 				listingValues.push(
 					listing.url,
@@ -199,20 +270,20 @@ getAllowedSwitchSearchFields = function(callback) {
 }
 
 app.get('/api/search', jsonParser, function(req, res) {
-  const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
+	const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
 		// execute search
 		var searchData = [];
 		var SEARCH_SQL
 			= 'SELECT *'
 					+ ' FROM switch.switch';
 
-    var hasQueryParams = false;
-    if(req.query) {
-      // TODO change to more elegantly check if query params are present
-      for(const queryField in req.query) {
-        hasQueryParams = true;
-        break;
-      }
+		var hasQueryParams = false;
+		if(req.query) {
+			// TODO change to more elegantly check if query params are present
+			for(const queryField in req.query) {
+				hasQueryParams = true;
+				break;
+			}
 		}
 
 		if(hasQueryParams) {
@@ -223,8 +294,8 @@ app.get('/api/search', jsonParser, function(req, res) {
 		// filter search fields to only include fields present in the database
 		for(const queryField in req.query) {
 			if(allowedSearchFields.includes(queryField)) {
-        // TODO check for less/greater/not indicators - regex?
-        var queryValue = req.query[queryField];
+				// TODO check for less/greater/not indicators - regex?
+				var queryValue = req.query[queryField];
 				SEARCH_SQL += AND + queryField + ' = ?';
 				AND = ' AND ';
 				searchData.push(queryValue);
@@ -250,5 +321,5 @@ app.get('/api/search', jsonParser, function(req, res) {
 
 app.listen(port, () => {
 	console.log(`Example app listening at http://localhost:${port}`)
-    console.log(`Database config: ${security.SWITCH_DB_URL} - ${security.SWITCH_DB_USER}`)
+		console.log(`Database config: ${security.SWITCH_DB_URL} - ${security.SWITCH_DB_USER}`)
 });
