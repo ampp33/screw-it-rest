@@ -1,12 +1,12 @@
 var security = require('./security');
 
 var express = require('express');
-var fileUpload = require('express-fileupload');
+var multer = require('multer');
 var bodyParser = require('body-parser')
 const cors = require('cors');
+const fs = require('fs');
 
 var uuid = require('uuid');
-
 
 var app = express();
 const port = 8081;
@@ -16,16 +16,15 @@ app.use(cors({
 		origin: '*'
 }));
 
-// enable files upload
-app.use(fileUpload({
-    createParentPath: true
-}));
-
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 
 // create application/json parser
 var jsonParser = bodyParser.json();
+
+const upload = multer({
+	dest: 'C:\\upload'
+});
 
 var mysql = require('mysql');
 var con = mysql.createConnection({
@@ -78,25 +77,25 @@ app.get('/api/test', jsonParser, function(req, res) {
 	});
 });
 
-app.post('/api/upload', function(req, res) {
+app.post('/api/upload', upload.array('images', 10), function(req, res) {
 	console.log(req.files);
-  var images = req.files.images;
-  if(images) {
-		console.log('num images: ' + images.length);
-		for(const image of images) {
-			// generate unique guid filename
-			var ext = getFileExtension(image.name);
-			var fileName = uuid.v4(); + '.' + ext;
-			var filePath = 'C:\\pics\\' + fileName;
+  if(req.files) {
+		console.log('num images: ' + req.files.length);
 
-			// move file to upload directory
-			image.mv(filePath);
+		const uploadedFileNames = [];
+		for(const image of req.files) {
+			// generate unique guid filename
+			var ext = getFileExtension(image.originalname);
+
+			// rename file to include file extension
+			const finalFilename = image.path + '.' + ext;
+			fs.renameSync(image.path, finalFilename);
+
+			uploadedFileNames.push(finalFilename);
 		}
 
     // return generated filename to caller, indicating a successful upload
-    res.send({
-      file_name: fileName
-    });
+    res.send(uploadedFileNames);
   } else {
     res.status(500);
   }
@@ -187,10 +186,6 @@ app.post('/api/switch', jsonParser, function(req, res) {
 
 		const imageValues = [];
 		for(const image of switchData.images) {
-			// generate guid for filename
-			image.file_name = 'asdf' + '.' + getFileExtension(image.file_name);
-			// TODO save file to filesystem!
-
 			// TODO change added_by to have actual userId
 			image.added_by = 999;
 
@@ -269,8 +264,8 @@ getAllowedSwitchSearchFields = function(callback) {
 	});
 }
 
-app.get('/api/search', jsonParser, function(req, res) {
-	const switchTableColumns = getAllowedSwitchSearchFields(function(allowedSearchFields) {
+async function switchSearch() {
+	getAllowedSwitchSearchFields(function(allowedSearchFields) {
 		// execute search
 		var searchData = [];
 		var SEARCH_SQL
@@ -302,20 +297,29 @@ app.get('/api/search', jsonParser, function(req, res) {
 			}
 		}
 
-		con.query(SEARCH_SQL, searchData, function(err, results) {
-			if(err) {
-				console.error(err);
-				res.sendStatus(500);
-				return;
-			} else {
-				var output = [];
-				for(const result of results) {
-					output.push(Object.assign({}, result));
+		const results =
+			await con.query(SEARCH_SQL, searchData, function(err, results) {
+				if(err) {
+					errorHandler(err);
+					return;
+				} else {
+					var output = [];
+					for(const result of results) {
+						output.push(Object.assign({}, result));
+					}
+					return output;
 				}
+			});
+	});
+}
 
-				res.send(output);
-			}
-		});
+app.get('/api/search', jsonParser, function(req, res) {
+	switchSearch()
+	.then((results) => {
+		res.send(results);
+	})
+	.catch((err) => {
+		res.sendStatus(500);
 	});
 });
 
