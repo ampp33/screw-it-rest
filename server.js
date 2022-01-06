@@ -74,18 +74,6 @@ transaction = function(...funcs) {
 	});
 }
 
-app.get('/api/test', jsonParser, function(req, res) {
-	const SQL = 'INSERT INTO switch.derp (value) VALUES (?)';
-	const values = ['a'];
-	con.query(INSERT_SWITCH_SQL, switchValues, function(err, results) {
-		if(err) {
-			throw err;
-		} else {
-			return;
-		}
-	});
-});
-
 app.post('/api/upload', upload.array('images', 10), function(req, res) {
 	console.log(req.files);
   if(req.files) {
@@ -304,10 +292,75 @@ async function switchSearch(queryObj) {
 	return output;
 }
 
+async function loadSwitch(switchId) {
+	const results = await switchSearch({ switch_id: switchId });
+	if(!results || results.length == 0) {
+		return undefined;
+	}
+	const loadedSwitch = results[0];
+
+	// get images
+	const GET_IMAGES_SQL
+		= "SELECT file_name, is_primary, added_by FROM switch.image "
+				+ " WHERE switch_id = ?";
+
+	const images = await query(GET_IMAGES_SQL, [ switchId ]);
+
+	loadedSwitch.images = [];
+	for(const image of images) {
+		loadedSwitch.images.push({
+			file_name: image.file_name,
+			is_primary: image.is_primary,
+			added_by: image.added_by
+		});
+	}
+
+	// get listings
+	const GET_LISTINGS_SQL
+		= "SELECT listing_id, url, price, added_by FROM switch.listing "
+				+ " WHERE switch_id = ?"
+				+ " ORDER BY price ASC";
+
+	const listings = await query(GET_LISTINGS_SQL, [ switchId ]);
+
+	loadedSwitch.listings = [];
+	for(const listing of listings) {
+		loadedSwitch.listings.push({
+			listing_id: listing.listing_id,
+			url: listing.url,
+			price: listing.price,
+			added_by: listing.added_by
+		});
+	}
+
+	// TODO references
+
+	return loadedSwitch;
+}
+
 app.get('/api/search', jsonParser, async (req, res) => {
 	try {
 		const results = await switchSearch(req.query);
 		res.json(results);
+	} catch (err) {
+		console.log(err);
+		res.sendStatus(500);
+	}
+});
+
+app.get('/api/switch/:switchId', async (req, res) => {
+	try {
+		// check for switch id param
+		if(!req.params.switchId) {
+			res.sendStatus(500);
+			return;
+		}
+		const loadedSwitch = await loadSwitch(req.params.switchId);
+		// check if a switch was found
+		if(!loadedSwitch) {
+			res.sendStatus(404);
+		}
+		res.json(loadedSwitch);
 	} catch (err) {
 		console.log(err);
 		res.sendStatus(500);
