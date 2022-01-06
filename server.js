@@ -39,6 +39,15 @@ getFileExtension = function(fileName) {
 	return tokens[tokens.length - 1];
 }
 
+async function query(sql, sqlData) {
+  return new Promise((resolve, reject) => {
+    con.query(sql, sqlData, function(err, results) {
+      if(err) reject(err);
+      resolve(results);
+    });
+  });
+}
+
 transaction = function(...funcs) {
 	connection.beginTransaction(function(err) {
 		if (err) { throw err; }
@@ -243,84 +252,66 @@ app.post('/api/switch', jsonParser, function(req, res) {
 	});
 });
 
-getAllowedSwitchSearchFields = function(callback) {
-	var switchTableFields = [];
-
+async function switchSearch(queryObj) {
+	// get list of allowable search fields
 	const GET_SWITCH_TABLE_FIELDS
 		= "SELECT column_name FROM information_schema.columns "
 				+ " WHERE table_schema = 'switch' AND table_name = 'switch'";
 
-	con.query(GET_SWITCH_TABLE_FIELDS, function(err, results) {
-		if(err) {
-			console.error(err);
-			res.sendStatus(500);
-			return;
-		} else {
-			for(const result of results) {
-				switchTableFields.push(result.column_name);
-			}
-			callback(switchTableFields);
+	const tableColumns = await query(GET_SWITCH_TABLE_FIELDS);
+
+	var allowedSearchFields = [];
+	for(const column of tableColumns) {
+		allowedSearchFields.push(column.column_name);
+	}
+
+	// execute search
+	var searchData = [];
+	var SEARCH_SQL
+		= 'SELECT *'
+				+ ' FROM switch.switch';
+
+	var hasQueryParams = false;
+	if(query) {
+		// TODO change to more elegantly check if query params are present
+		for(const queryField in queryObj) {
+			hasQueryParams = true;
+			break;
 		}
-	});
+	}
+
+	if(hasQueryParams) {
+		SEARCH_SQL += ' WHERE';
+	}
+	var AND = ' ';
+
+	// filter search fields to only include fields present in the database
+	for(const queryField in queryObj) {
+		if(allowedSearchFields.includes(queryField)) {
+			// TODO check for less/greater/not indicators - regex?
+			var queryValue = queryObj[queryField];
+			SEARCH_SQL += AND + queryField + ' = ?';
+			AND = ' AND ';
+			searchData.push(queryValue);
+		}
+	}
+
+	const results = await query(SEARCH_SQL, searchData);
+	var output = [];
+	for(const result of results) {
+		output.push(Object.assign({}, result));
+	}
+	return output;
 }
 
-async function switchSearch() {
-	getAllowedSwitchSearchFields(function(allowedSearchFields) {
-		// execute search
-		var searchData = [];
-		var SEARCH_SQL
-			= 'SELECT *'
-					+ ' FROM switch.switch';
-
-		var hasQueryParams = false;
-		if(req.query) {
-			// TODO change to more elegantly check if query params are present
-			for(const queryField in req.query) {
-				hasQueryParams = true;
-				break;
-			}
-		}
-
-		if(hasQueryParams) {
-			SEARCH_SQL += ' WHERE';
-		}
-		var AND = ' ';
-
-		// filter search fields to only include fields present in the database
-		for(const queryField in req.query) {
-			if(allowedSearchFields.includes(queryField)) {
-				// TODO check for less/greater/not indicators - regex?
-				var queryValue = req.query[queryField];
-				SEARCH_SQL += AND + queryField + ' = ?';
-				AND = ' AND ';
-				searchData.push(queryValue);
-			}
-		}
-
-		const results =
-			await con.query(SEARCH_SQL, searchData, function(err, results) {
-				if(err) {
-					errorHandler(err);
-					return;
-				} else {
-					var output = [];
-					for(const result of results) {
-						output.push(Object.assign({}, result));
-					}
-					return output;
-				}
-			});
-	});
-}
-
-app.get('/api/search', jsonParser, function(req, res) {
-	switchSearch()
-	.then((results) => {
-		res.send(results);
-	})
-	.catch((err) => {
+app.get('/api/search', jsonParser, async (req, res) => {
+	try {
+		const results = await switchSearch(req.query);
+		res.json(results);
+	} catch (err) {
+		console.log(err);
 		res.sendStatus(500);
-	});
+	}
 });
 
 app.listen(port, () => {

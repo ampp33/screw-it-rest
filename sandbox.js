@@ -8,14 +8,17 @@ var con = mysql.createConnection({
 });
 con.connect();
 
-query = function(sql, sqlData, data, handler) {
+async function query(sql, sqlData) {
   return new Promise((resolve, reject) => {
     con.query(sql, sqlData, function(err, results) {
       if(err) reject(err);
-      handler(data, results);
-      resolve();
+      resolve(results);
     });
   });
+}
+
+async function doAsyncStuff() {
+	console.log('async shit complete!');
 }
 
 transaction = function(...queries) {
@@ -40,7 +43,12 @@ transaction = function(...queries) {
   });
 }
 
-var blah = {};
-transaction(query("sql", [], blah, function() {
+async function doItAll() {
+	const results = await query('select * from switch.switch');
+	console.log(results);
+	await doAsyncStuff();
+	console.log('done!');
+}
 
-}));
+
+doItAll();
