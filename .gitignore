@@ -2,7 +2,7 @@
 node_modules
 /dist
 
-security.js
+security.js*
 
 # local env files
 .env.local

@@ -292,6 +292,25 @@ async function switchSearch(queryObj) {
 	return output;
 }
 
+<<<<<<< HEAD
+async function getAutocompleteValues() {
+	const GET_DISTINCT_QUERY
+		= "SELECT DISTINCT manufacturer, name FROM switch.switch "
+				+ " ORDER BY manufacturer, name";
+	const rows = await query(GET_DISTINCT_QUERY);
+
+	var result = {};
+	var currentManu = null;
+	for(const row of rows) {
+		if(currentManu == null || currentManu != row.manufacturer) {
+			currentManu = row.manufacturer;
+			result[row.manufacturer] = [];
+		}
+		result[row.manufacturer].push(row.name);
+	}
+
+	return result;
+=======
 async function loadSwitch(switchId) {
 	const results = await switchSearch({ switch_id: switchId });
 	if(!results || results.length == 0) {
@@ -336,6 +355,7 @@ async function loadSwitch(switchId) {
 	// TODO references
 
 	return loadedSwitch;
+>>>>>>> 9ab67bf6883b5a56376df680825672e096cdf051
 }
 
 app.get('/api/search', jsonParser, async (req, res) => {
@@ -348,36 +368,13 @@ app.get('/api/search', jsonParser, async (req, res) => {
 	}
 });
 
-async function getAutocompleteValues() {
-	const GET_DISTINCT_QUERY
-		= "SELECT DISTINCT manufacturer, name FROM switch.switch "
-				+ " ORDER BY manufacturer, name";
-	const rows = await query(GET_DISTINCT_QUERY);
-
-	var result = {};
-	var currentManu = null;
-	for(const row of rows) {
-		if(currentManu == null || currentManu != row.manufacturer) {
-			currentManu = row.manufacturer;
-			result[row.manufacturer] = [];
-		}
-		result[row.manufacturer].push(row.name);
-	}
-
-	return result;
-}
-
+<<<<<<< HEAD
 app.get('/api/autocomplete', jsonParser, async (req, res) => {
 	try {
 		// manu -> name hierarchy
 		const autocompleteData = await getAutocompleteValues();
 		res.json(autocompleteData);
-	} catch (err) {
-		console.log(err);
-		res.sendStatus(500);
-	}
-});
-
+=======
 app.get('/api/switch/:switchId', async (req, res) => {
 	try {
 		// check for switch id param
@@ -391,6 +388,7 @@ app.get('/api/switch/:switchId', async (req, res) => {
 			res.sendStatus(404);
 		}
 		res.json(loadedSwitch);
+>>>>>>> 9ab67bf6883b5a56376df680825672e096cdf051
 	} catch (err) {
 		console.log(err);
 		res.sendStatus(500);
