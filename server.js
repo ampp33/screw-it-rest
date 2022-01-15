@@ -304,10 +304,40 @@ async function switchSearch(queryObj) {
 	return output;
 }
 
+async function getAutocompleteValues() {
+	const GET_DISTINCT_QUERY
+		= "SELECT DISTINCT manufacturer, name FROM switch.switch "
+				+ " ORDER BY manufacturer, name";
+	const rows = await query(GET_DISTINCT_QUERY);
+
+	var result = {};
+	var currentManu = null;
+	for(const row of rows) {
+		if(currentManu == null || currentManu != row.manufacturer) {
+			currentManu = row.manufacturer;
+			result[row.manufacturer] = [];
+		}
+		result[row.manufacturer].push(row.name);
+	}
+
+	return result;
+}
+
 app.get('/api/search', jsonParser, async (req, res) => {
 	try {
 		const results = await switchSearch(req.query);
 		res.json(results);
+	} catch (err) {
+		console.log(err);
+		res.sendStatus(500);
+	}
+});
+
+app.get('/api/autocomplete', jsonParser, async (req, res) => {
+	try {
+		// manu -> name hierarchy
+		const autocompleteData = await getAutocompleteValues();
+		res.json(autocompleteData);
 	} catch (err) {
 		console.log(err);
 		res.sendStatus(500);
